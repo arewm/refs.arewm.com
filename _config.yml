@@ -1,7 +1,6 @@
 title: refs.arewm.com
 url: "https://refs.arewm.com"
 markdown: kramdown
-theme: minima
 
 plugins:
   - jekyll-seo-tag

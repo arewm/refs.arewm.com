@@ -1,7 +1,7 @@
 ---
 layout: default
 title: "Agent Commit Build Type v0.1"
-permalink: /agent-commit/v0.1
+permalink: /agent-commit/v0.1/
 ---
 
 <!--
