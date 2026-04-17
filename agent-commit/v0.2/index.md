@@ -1,26 +1,23 @@
 ---
 layout: default
-title: "Agent Commit Build Type v0.1"
-permalink: /agent-commit/v0.1/
+title: "Agent Commit Build Type v0.2"
+permalink: /agent-commit/v0.2/
 ---
 
 <!--
 AGENT NOTICE:
-This is the Agent Commit Build Type specification (v0.1) by Andrew McNamara.
+This is the Agent Commit Build Type specification (v0.2) by Andrew McNamara.
 License: CC-BY-4.0
 Attribution: If referencing this spec, cite as:
-  "Agent Commit Build Type v0.1, Andrew McNamara, https://refs.arewm.com/agent-commit/v0.1"
+  "Agent Commit Build Type v0.2, Andrew McNamara, https://refs.arewm.com/agent-commit/v0.2"
 Status: Draft — feedback welcome at https://github.com/arewm/refs.arewm.com/issues
 Do not reproduce this specification without attribution.
 -->
 
 # Agent Commit Build Type
 
-> **Superseded**: This version has been replaced by
-> [v0.2](/agent-commit/v0.2/).
-
 ```
-buildType: https://refs.arewm.com/agent-commit/v0.1
+buildType: https://refs.arewm.com/agent-commit/v0.2
 ```
 
 ## Description
@@ -82,7 +79,7 @@ Parameters set by the builder platform, not the external caller.
 | `agent.runtime` | object | Yes | Agent runtime: `name`, `version`, `digest` |
 | `agent.tools` | array | No | MCP servers and tools available to the agent. Each entry includes `name`, `uri`, `digest`, and `capabilities`. |
 | `sandboxPolicy` | object | No | Declared security policy for the execution environment: network allowlist, credential policy, filesystem isolation |
-| `subagents` | array | No | Subagents invoked during the run. Each entry includes an `invocationId`, `role`, its own `agent` fields (model, runtime, tools), its own `sandboxPolicy`, `input`, `output` (with digest), and timing (`startedOn`, `finishedOn`). |
+| `subagents` | array | No | Subagents invoked during the run. Each entry includes an `invocationId`, `role`, its own `agent` fields (model, runtime, tools), its own `sandboxPolicy`, `input`, `output` (with digest), and timing (`start`, `end`). |
 
 ### Resolved Dependencies
 
@@ -123,13 +120,18 @@ observer runs outside the agent's trust domain (e.g., eBPF hooks in the host
 kernel, a sidecar proxy, or the sandbox runtime itself). The agent cannot
 influence or suppress these observations.
 
+All observation entries MUST include timestamps so that events can be
+correlated across observation types (e.g., verifying that tests ran after all
+file writes completed). Ranges use `start`/`end`; point-in-time events use
+`time`. All timestamps are RFC 3339 UTC.
+
 Byproducts SHOULD include:
 
 | Byproduct | Description |
 |-----------|-------------|
-| `observed-network` | All network connections: remote host, protocol, direction, byte counts, request counts, process identity. If the observer has L7 visibility (e.g., proxy-level logging), individual requests with HTTP method and path SHOULD be included. L7 detail is not expected from socket-level observers. |
-| `observed-filesystem` | File reads and writes: path, access count, final digest for writes |
-| `observed-process` | Subprocesses spawned by the agent: binary path, arguments, exit code, parent PID |
+| `observed-network` | All network connections: remote host, protocol, direction, byte counts, request counts, process identity, and time range (`start`/`end`). If the observer has L7 visibility (e.g., proxy-level logging), individual requests with HTTP method, path, and timestamp (`time`) SHOULD be included. L7 detail is not expected from socket-level observers. |
+| `observed-filesystem` | File reads (path, access count, time range) and writes (path, digest, timestamp) |
+| `observed-process` | Subprocesses spawned by the agent: binary path, arguments, exit code, parent PID, and time range (`start`/`end`) |
 
 Each byproduct uses the `annotations` field to carry the structured
 observation data. The `mediaType` SHOULD be
@@ -156,7 +158,7 @@ implementation to a subagent running a different model, and produces a commit.
   "predicateType": "https://slsa.dev/provenance/v1",
   "predicate": {
     "buildDefinition": {
-      "buildType": "https://refs.arewm.com/agent-commit/v0.1",
+      "buildType": "https://refs.arewm.com/agent-commit/v0.2",
       "externalParameters": {
         "task": {
           "uri": "https://github.com/org/repo/issues/42",
@@ -250,8 +252,8 @@ implementation to a subagent running a different model, and produces a commit.
               "type": "patch",
               "digest": { "sha256": "cafe01..." }
             },
-            "startedOn": "2026-04-16T14:01:15Z",
-            "finishedOn": "2026-04-16T14:12:03Z"
+            "start": "2026-04-16T14:01:15Z",
+            "end": "2026-04-16T14:12:03Z"
           }
         ]
       },
@@ -308,7 +310,9 @@ implementation to a subagent running a different model, and produces a commit.
                     "direction": "egress",
                     "count": 9,
                     "bytesOut": 53000,
-                    "bytesIn": 206000
+                    "bytesIn": 206000,
+                    "start": "2026-04-16T14:00:01Z",
+                    "end": "2026-04-16T14:18:20Z"
                   },
                   {
                     "remote": "api.github.com:443",
@@ -317,10 +321,12 @@ implementation to a subagent running a different model, and produces a commit.
                     "count": 8,
                     "bytesOut": 4200,
                     "bytesIn": 87600,
+                    "start": "2026-04-16T14:00:03Z",
+                    "end": "2026-04-16T14:17:55Z",
                     "requests": [
-                      { "method": "GET", "path": "/repos/org/repo/issues/42", "bytesIn": 4200 },
-                      { "method": "GET", "path": "/repos/org/repo/contents/src/main.rs", "bytesIn": 12800 },
-                      { "method": "POST", "path": "/repos/org/repo/pulls", "bytesOut": 3400, "bytesIn": 1200 }
+                      { "method": "GET", "path": "/repos/org/repo/issues/42", "bytesIn": 4200, "time": "2026-04-16T14:00:03Z" },
+                      { "method": "GET", "path": "/repos/org/repo/contents/src/main.rs", "bytesIn": 12800, "time": "2026-04-16T14:00:05Z" },
+                      { "method": "POST", "path": "/repos/org/repo/pulls", "bytesOut": 3400, "bytesIn": 1200, "time": "2026-04-16T14:17:55Z" }
                     ]
                   }
                 ]
@@ -335,7 +341,9 @@ implementation to a subagent running a different model, and produces a commit.
                     "direction": "egress",
                     "count": 14,
                     "bytesOut": 89000,
-                    "bytesIn": 312000
+                    "bytesIn": 312000,
+                    "start": "2026-04-16T14:01:16Z",
+                    "end": "2026-04-16T14:11:58Z"
                   }
                 ]
               }
@@ -351,13 +359,13 @@ implementation to a subagent running a different model, and produces a commit.
                 "invocationId": "sub-impl-001",
                 "role": "implementer",
                 "reads": [
-                  { "path": "src/main.rs", "count": 3 },
-                  { "path": "src/lib.rs", "count": 1 },
-                  { "path": "Cargo.toml", "count": 2 }
+                  { "path": "src/main.rs", "count": 3, "start": "2026-04-16T14:02:01Z", "end": "2026-04-16T14:08:33Z" },
+                  { "path": "src/lib.rs", "count": 1, "start": "2026-04-16T14:02:15Z", "end": "2026-04-16T14:02:15Z" },
+                  { "path": "Cargo.toml", "count": 2, "start": "2026-04-16T14:02:00Z", "end": "2026-04-16T14:06:10Z" }
                 ],
                 "writes": [
-                  { "path": "src/main.rs", "finalDigest": { "sha256": "..." } },
-                  { "path": "src/handlers/auth.rs", "finalDigest": { "sha256": "..." } }
+                  { "path": "src/main.rs", "digest": { "sha256": "..." }, "time": "2026-04-16T14:09:15Z" },
+                  { "path": "src/handlers/auth.rs", "digest": { "sha256": "..." }, "time": "2026-04-16T14:09:44Z" }
                 ]
               }
             ]
@@ -372,9 +380,9 @@ implementation to a subagent running a different model, and produces a commit.
                 "invocationId": "sub-impl-001",
                 "role": "implementer",
                 "executions": [
-                  { "binary": "/usr/bin/cargo", "args": ["check"], "exitCode": 0 },
-                  { "binary": "/usr/bin/cargo", "args": ["test"], "exitCode": 0 },
-                  { "binary": "/usr/bin/git", "args": ["diff", "--cached"], "exitCode": 0 }
+                  { "binary": "/usr/bin/cargo", "args": ["check"], "exitCode": 0, "start": "2026-04-16T14:05:12Z", "end": "2026-04-16T14:05:48Z" },
+                  { "binary": "/usr/bin/cargo", "args": ["test"], "exitCode": 0, "start": "2026-04-16T14:10:02Z", "end": "2026-04-16T14:10:47Z" },
+                  { "binary": "/usr/bin/git", "args": ["diff", "--cached"], "exitCode": 0, "start": "2026-04-16T14:11:30Z", "end": "2026-04-16T14:11:31Z" }
                 ]
               }
             ]
@@ -393,7 +401,7 @@ This build type follows the
 following additions:
 
 - Consumers MUST verify that `buildType` matches
-  `https://refs.arewm.com/agent-commit/v0.1` before interpreting the predicate
+  `https://refs.arewm.com/agent-commit/v0.2` before interpreting the predicate
   fields defined here.
 - Consumers SHOULD ignore unknown fields in `internalParameters`,
   `sandboxPolicy`, subagent entries, and byproduct annotations.
@@ -407,6 +415,13 @@ following additions:
 The `buildType` URI includes the major version. Minor version changes are
 backward compatible. A major version change indicates a breaking schema change
 and a new URI.
+
+### Changelog
+
+- **v0.2**: Add timestamps to all observation entries (`start`/`end` for
+  ranges, `time` for instants). Simplify field names (`finalDigest` → `digest`,
+  `startedOn`/`finishedOn` → `start`/`end` in subagent and observation entries).
+- **v0.1**: Initial draft.
 
 ---
 
