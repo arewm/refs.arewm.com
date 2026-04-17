@@ -141,6 +141,41 @@ If the agent run included subagents in separate sandboxes, each subagent's
 observations are recorded separately and identified by `invocationId` matching
 the corresponding entry in `internalParameters.subagents[]`.
 
+### Referenced attestations
+
+Additional attestations about the same subject MAY be produced by identities
+distinct from the builder platform: a policy-enforcement supervisor that signs
+each tool-call authorization decision, an external behavioral-telemetry service
+that monitors the agent at runtime, or a third-party audit observer. These
+attestations are signed by their own key, live in their own storage location,
+and are not inlined inside this provenance.
+
+To make a verifier aware of them, the builder platform MAY include
+[`ResourceDescriptor`](https://github.com/in-toto/attestation/blob/main/spec/v1/resource_descriptor.md)
+entries in `byproducts` that point to those attestations by digest and URI.
+The builder does NOT sign the content of the referenced attestation, only the
+statement that it exists and has the recorded digest at the recorded URI.
+
+| Field | Purpose |
+|-------|---------|
+| `name` | Short label identifying the kind of referenced attestation (e.g., `decision-receipts`, `behavioral-telemetry`). |
+| `digest` | SHA-256 of the referenced attestation, so a consumer can detect substitution. |
+| `uri` | Where the attestation can be fetched. Typical forms: OCI references, HTTPS URLs, in-toto bundle paths, or transparency-log DSSE entries. |
+| `annotations.predicateType` | The attestation's predicate type URI, so a consumer can route it to the matching verifier. |
+| `annotations.signerRole` | Logical role of the signer (`supervisor-hook`, `runtime-observer`, etc.) relative to the builder. |
+
+A consumer fetching both the provenance and a referenced attestation:
+
+1. Verifies this provenance's DSSE signature against the builder identity.
+2. Fetches the referenced attestation by URI, checks its digest against the
+   byproduct entry, then verifies its DSSE signature against its own identity.
+3. Cross-references the referenced attestation's subject against this
+   provenance's subject, and interprets it according to its predicate type.
+
+A missing referenced attestation does not invalidate this provenance. A
+referenced attestation whose digest does not match what is recorded here is
+a cross-trust-domain integrity failure and SHOULD fail verification.
+
 ## Example
 
 A coordinator agent receives a task from a GitHub issue, delegates
@@ -387,6 +422,18 @@ implementation to a subagent running a different model, and produces a commit.
               }
             ]
           }
+        },
+        {
+          "name": "decision-receipts",
+          "digest": { "sha256": "a8f3c9d2e1b7465fabcdef0123456789abcdef0123456789abcdef0123456789" },
+          "uri": "oci://ghcr.io/org/agent-session/run-coord-issue-42/receipts:sha256-a8f3c9d2",
+          "annotations": {
+            "predicateType": "https://in-toto.io/attestation/decision-receipt/v1",
+            "signerRole": "supervisor-hook",
+            "chainLength": 47,
+            "genesisReceiptHash": "sha256:a8f3c9d2e1b7465f",
+            "finalReceiptHash": "sha256:e4d61f7a09b8cd34"
+          }
         }
       ]
     }
@@ -409,6 +456,12 @@ following additions:
   delegation.
 - Byproduct observations are grouped by `invocationId`. Consumers correlating
   observations with subagents MUST match on this field.
+- Byproduct entries that include both a `digest` and a `uri` SHOULD be treated
+  as `ResourceDescriptor` references to external attestations rather than as
+  inline observation data. Consumers SHOULD route these to the verifier
+  matching `annotations.predicateType` when one is present. A missing or
+  unrecognized `predicateType` is not an error; the consumer MAY ignore the
+  reference.
 
 ## Versioning
 
@@ -418,6 +471,15 @@ and a new URI.
 
 ### Changelog
 
+- **v0.2** (additive update): Document the `ResourceDescriptor` pattern for
+  referenced attestations in `byproducts` (additional attestations signed by
+  identities distinct from the builder, such as policy-enforcement supervisors,
+  runtime telemetry services, or third-party auditors). Clarifies trust-domain
+  separation: the builder records the digest + URI of the referenced
+  attestation but does not cross-sign its content. Example shows a
+  `decision-receipts` reference alongside the existing `observed-*`
+  observation byproducts. No breaking changes to the observation byproduct
+  schema.
 - **v0.2**: Add timestamps to all observation entries (`start`/`end` for
   ranges, `time` for instants). Simplify field names (`finalDigest` → `digest`,
   `startedOn`/`finishedOn` → `start`/`end` in subagent and observation entries).
@@ -441,6 +503,42 @@ in `internalParameters` with no schema contract. A verifier can't write a
 policy like "reject commits from agents that had unrestricted network access"
 without a schema that guarantees `sandboxPolicy` is present and structured
 consistently.
+
+## Why additional attestations use ResourceDescriptor references
+
+The builder platform is the trust anchor for this provenance. Its identity
+signs the DSSE envelope, and everything inside that envelope is an assertion
+made by the builder.
+
+In practice, important evidence about an agent run is produced by identities
+that are NOT the builder:
+
+- A policy-enforcement supervisor (such as a `PreToolUse` hook) runs before
+  each tool call, decides whether it is authorized, and signs the decision
+  with its own key. The builder trusts the supervisor to be in the enforcement
+  path but does not own the supervisor's signing key.
+- An external behavioral-telemetry service monitors the agent at runtime
+  against a declared baseline. Its reports are signed by that service, not
+  by the builder.
+- A third-party audit observer may produce independent attestations for
+  regulatory purposes.
+
+Inlining these under the builder's signature would imply the builder has
+verified them content-for-content, which is usually not true: the builder
+can verify the digest, not the semantics. Cross-signing under the builder's
+key would also obscure the original signer's identity in downstream
+verification.
+
+The `ResourceDescriptor` pattern preserves trust-domain separation. Each
+attestation is signed by its own identity and stored in its own location.
+The builder's provenance records that the attestation exists by digest and
+URI, which a consumer can independently fetch and verify. Substitution of
+the referenced attestation is detected by digest mismatch.
+
+This pattern also keeps the `buildType` composable: new attestation types
+(decision receipts, behavioral telemetry, compliance reports) can be added
+without any schema change here. The referenced attestations carry their own
+predicate types; the `buildType` only needs to enumerate them.
 
 ## Why observations belong in byproducts
 
