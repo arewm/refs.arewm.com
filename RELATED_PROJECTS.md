@@ -92,6 +92,31 @@ a shared cgroup. In this model, the proxy sidecar populates
 agent container's cgroup populates `observed-filesystem` and
 `observed-process`.
 
+## Attestation Storage
+
+### [git-meta](https://git-meta.com)
+
+A specification and Rust CLI for attaching structured, typed metadata to
+git objects via `refs/meta/*`, using ordinary git transport with no
+special server required. Metadata can target commits, branches, file
+paths, or projects, with namespaced keys (e.g. `agent:model`,
+`attestation:bundle`) and deterministic merge semantics.
+
+Rekor v2 (`rekor-tiles`) does not store attestation content — it logs
+only the envelope hash, signing certificate, and inclusion proof, and
+explicitly expects attestations to be stored alongside the artifact.
+git-meta is a git-native option for this: a signed DSSE bundle
+containing the agent-commit predicate can be stored as a git-meta field
+on the commit, travels with the repository, and requires no external
+service. The DSSE signature handles content integrity; the Rekor v2 log
+entry (which exists independently of wherever the bundle is stored)
+provides availability evidence — a verifier can detect that an
+attestation was produced for a commit even if the git-meta copy is later
+deleted.
+
+git-meta has no signing layer of its own. Trust comes from the DSSE
+signature inside the stored bundle, not from the storage mechanism.
+
 ## Attestation Tooling
 
 Projects in this section use signing infrastructure from
