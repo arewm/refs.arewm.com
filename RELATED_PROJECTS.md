@@ -27,7 +27,7 @@ provenance of the same commit.
 ### [nono](https://nono.sh)
 
 An agent sandbox platform with OS-level enforcement (macOS Seatbelt, Linux
-Landlock) and two attestation capabilities:
+Landlock), a built-in observation layer, and two attestation capabilities:
 
 - **Instruction file signing** — attests that a key holder approved the
   content of agent instruction files (e.g., `SKILLS.md`). Supports keyed
@@ -35,17 +35,42 @@ Landlock) and two attestation capabilities:
   Sigstore bundles. Predicate types: `instruction-file/v1`,
   `trust-policy/v1`, `multi-file/v1`.
 
-- **Audit session attestation** (alpha) — signs a session-scoped attestation
-  binding a session ID, timing, command, and the Merkle root of an
-  append-only audit log. Answers "has the audit log been tampered with?" but
-  does not describe what the agent did in structured provenance terms.
+- **Audit session attestation** — signs a session-scoped DSSE/in-toto
+  attestation binding a session ID, timing, command, and the Merkle root
+  of an append-only audit event log. The attestation subject is
+  `audit-session:{session_id}` with the event log Merkle root as the
+  digest — it proves log integrity for a session, not provenance of a
+  specific output artifact.
 
-nono's signing infrastructure (DSSE + in-toto + Sigstore) is the kind of
-envelope a builder platform would use to sign an agent-commit provenance
-predicate. Its audit log could serve as a data source for populating the
-buildType's runtime observation byproducts. The gap is the provenance schema
-itself: nono proves log integrity, the agent-commit buildType describes what
-happened during the build.
+**Observation model.** nono observes sessions through its own mediation
+layers rather than external instrumentation like eBPF or ptrace:
+capability requests over a supervisor IPC socket (with peer PID
+extraction), L7 network traffic through its built-in proxy (method, path,
+status, auth mechanism), and periodic Merkle-tree filesystem snapshots of
+tracked paths. This provides good coverage of mediated activity but does
+not capture syscall-level detail — file reads within already-granted
+access, for example, are not individually logged. No OTel integration is
+required or used.
+
+**Subagent visibility.** nono treats the entire sandboxed process tree as
+a single unit. Child processes inherit the parent's Landlock/Seatbelt
+sandbox (they cannot be restricted further), share one session ID, and
+are indistinguishable in the network audit log (the proxy sees
+`127.0.0.1` with no PID attribution). The buildType's `invocationId`-based
+subagent correlation — where a coordinator and implementer have separate
+observation streams — has no equivalent in nono's model.
+
+**Relationship to the buildType.** nono's signing infrastructure (DSSE +
+in-toto + Sigstore) is the kind of envelope a builder platform would use
+to sign an agent-commit provenance predicate. Its audit data — network
+events, capability decisions, filesystem snapshots — could serve as input
+for populating the buildType's `observed-*` byproducts, though the
+observation granularity differs (mediated-access logging vs. the
+syscall-level continuous observation the buildType's schema assumes). The
+core gap remains the provenance schema: nono proves that an audit log for
+a session is authentic; the buildType describes how a specific commit was
+produced, under what constraints, with what observations, and with
+per-subagent attribution.
 
 ## Sandbox Platforms
 
